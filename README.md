@@ -20,12 +20,12 @@ tensorflow >= 1.13
 ![Structure](https://user-images.githubusercontent.com/17133841/66222115-70035a80-e69e-11e9-8a8e-0bc0ef4c71d7.png)
 
 * The using of 'Orthography → Hidden' and 'Hidden → Hidden' is selectable.
+* The model reported in the paper has both connections (O->H and H->H).
 
 ## Dataset
 
-English Lexicon Project: https://elexicon.wustl.edu/index.html  
-
-**'To Sahil: This part is not clear. Please confirm to Jim'**
+Data were obtained from the English Lexicon Project: https://elexicon.wustl.edu/index.html  
+The "ELP_groupData.csv" file was used to train VOISeR.
 
 ## Run
 
