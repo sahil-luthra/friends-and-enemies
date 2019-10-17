@@ -122,6 +122,16 @@ class Pattern_Feeder:
                 shape=(None,), 
                 name = "length_Placeholder"
                 )
+            self.placeholder_Dict["Analysis_Input"] = tf.placeholder(
+                tf.float32, 
+                shape=(None, self.max_Pronunciation_Length, self.phonology_Size), 
+                name = "analysis_Input_Placeholder"
+                )
+            self.placeholder_Dict["Phoneme_Info"] = tf.placeholder(
+                tf.float32, 
+                shape=(len(self.phoneme_List), self.phonology_Size), 
+                name = "phoneme_Info_Placeholder"
+                )
 
     def Word_to_Pattern(self, word):
         word = word + "_" * (self.max_Word_Length - len(word))
@@ -225,6 +235,36 @@ class Pattern_Feeder:
             new_Feed_Dict_List.append(new_Feed_Dict)
 
         return new_Feed_Dict_List
+
+    def Get_InferenceTest_Pattern_List(self, word_List, pronunciation_List):
+        if len(word_List) != len(pronunciation_List):
+            raise ValueError('The lengths of \'word_List\', \'pronunciation_List\' must be same.')
+
+        pattern_Count  = len(word_List)
+        
+        orthography_Pattern = np.zeros((pattern_Count, self.orthography_Size), dtype= np.int32 if self.use_Orthography_Embedding else np.float32)
+        cycle_Pattern = np.zeros(pattern_Count, dtype= np.int32)
+        phonology_Pattern = np.zeros((pattern_Count, self.max_Pronunciation_Length, self.phonology_Size), dtype= np.float32)
+
+        for index, (word, pronunciation)  in enumerate(zip(word_List, pronunciation_List)):
+            orthography_Pattern[index] = self.Word_to_Pattern(word)
+            cycle_Pattern[index] = self.max_Pronunciation_Length
+            phonology_Pattern[index] = self.Pronunciation_to_Pattern(pronunciation)
+            
+        pattern_Index_List = list(range(pattern_Count))
+        pattern_Index_Batch_List = [pattern_Index_List[x:x+self.batch_Size] for x in range(0, len(pattern_Index_List), self.batch_Size)]
+
+        new_Feed_Dict_List = []
+
+        for pattern_Index_Batch in pattern_Index_Batch_List:
+            #Semantic pattern is not used in the test.
+            new_Feed_Dict= {
+                self.placeholder_Dict["Orthography"]: orthography_Pattern[pattern_Index_Batch],
+                self.placeholder_Dict["Length"]: cycle_Pattern[pattern_Index_Batch]
+                }
+            new_Feed_Dict_List.append(new_Feed_Dict)
+
+        return phonology_Pattern, new_Feed_Dict_List
 
 
 if __name__ == "__main__":

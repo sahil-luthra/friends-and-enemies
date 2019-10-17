@@ -66,6 +66,8 @@ class VOISeR:
             orthography_Placeholder = self.pattern_Feeder.placeholder_Dict["Orthography"]
             phonology_Placeholder = self.pattern_Feeder.placeholder_Dict["Phonology"]
             length_Placeholder = self.pattern_Feeder.placeholder_Dict["Length"]
+            analysis_Input_Placeholder = self.pattern_Feeder.placeholder_Dict["Analysis_Input"]
+            phoneme_Info_Placeholder = self.pattern_Feeder.placeholder_Dict["Phoneme_Info"]
 
             batch_Size = tf.shape(orthography_Placeholder)[0]
 
@@ -160,9 +162,31 @@ class VOISeR:
                 tf.nn.sigmoid(output_Logits) if self.is_Phoneme_Distribution else tf.nn.softmax(output_Logits),
                 shape=[-1, self.pattern_Feeder.phonology_Size * self.pattern_Feeder.max_Pronunciation_Length]
                 )
+
+        with tf.variable_scope('inference') as scope:
+            split_Cosine_Similarity = tf.reduce_sum(phonology_Placeholder * analysis_Input_Placeholder, axis = -1) / (tf.sqrt(tf.reduce_sum(tf.pow(phonology_Placeholder, 2), axis = -1)) * tf.sqrt(tf.reduce_sum(tf.pow(analysis_Input_Placeholder, 2), axis = -1)))
+            split_Mean_Squared_Error = tf.reduce_mean(tf.pow(phonology_Placeholder - analysis_Input_Placeholder, 2), axis=-1)
+            split_Euclidean_Distance = tf.sqrt(tf.reduce_sum(tf.pow(phonology_Placeholder - analysis_Input_Placeholder, 2), axis=-1))
+            split_Cross_Entropy = -tf.reduce_mean(phonology_Placeholder * tf.log(analysis_Input_Placeholder + 1e-8) + (1 - phonology_Placeholder) * tf.log(1 - analysis_Input_Placeholder + 1e-8), axis = -1)
+
+            reshaped_Phonology_Tensor = tf.reshape(phonology_Placeholder, [-1, self.pattern_Feeder.max_Pronunciation_Length * self.pattern_Feeder.phonology_Size])
+            reshaped_Analysis_Input_Tensor = tf.reshape(analysis_Input_Placeholder, [-1, self.pattern_Feeder.max_Pronunciation_Length * self.pattern_Feeder.phonology_Size])            
+            all_Cosine_Similarity = tf.reduce_sum(reshaped_Phonology_Tensor * reshaped_Analysis_Input_Tensor, axis = -1) / (tf.sqrt(tf.reduce_sum(tf.pow(reshaped_Phonology_Tensor, 2), axis = -1)) * tf.sqrt(tf.reduce_sum(tf.pow(reshaped_Analysis_Input_Tensor, 2), axis = -1)))
+            all_Mean_Squared_Error = tf.reduce_mean(tf.pow(reshaped_Phonology_Tensor - reshaped_Analysis_Input_Tensor, 2), axis=-1)
+            all_Euclidean_Distance = tf.sqrt(tf.reduce_sum(tf.pow(reshaped_Phonology_Tensor - reshaped_Analysis_Input_Tensor, 2), axis=-1))
+            all_Cross_Entropy = -tf.reduce_mean(reshaped_Phonology_Tensor * tf.log(reshaped_Analysis_Input_Tensor + 1e-8) + (1 - reshaped_Phonology_Tensor) * tf.log(1 - reshaped_Analysis_Input_Tensor + 1e-8), axis = -1)
+
+            if self.is_Phoneme_Distribution:
+                tiled_Analysis_Input_Tensor = tf.tile(tf.expand_dims(analysis_Input_Placeholder, [2]), multiples = [1, 1, phoneme_Info_Placeholder.shape[0], 1])   #[batch, 17, 42, 18]                
+                tiled_Phoneme_Info_Placeholder = tf.tile(tf.expand_dims(tf.expand_dims(phoneme_Info_Placeholder, [0]), [0]), multiples = [tf.shape(analysis_Input_Placeholder)[0], tf.shape(analysis_Input_Placeholder)[1], 1, 1])   #[batch, 17, 42, 18]                
+                phoneme_Cosine_Similarity = tf.reduce_sum(tiled_Phoneme_Info_Placeholder * tiled_Analysis_Input_Tensor, axis = 3) / (tf.sqrt(tf.reduce_sum(tf.pow(tiled_Phoneme_Info_Placeholder, 2), axis = 3)) * tf.sqrt(tf.reduce_sum(tf.pow(tiled_Analysis_Input_Tensor, 2), axis = 3)))  #[batch, 17, 42]        
+                pattern_Argmax = tf.argmax(phoneme_Cosine_Similarity, axis=2)  #[batch, 17]
+            else:
+                pattern_Argmax = tf.argmax(analysis_Input_Placeholder, axis=2)  #[batch, 17]
             
         self.training_Tensor_List = [global_Step, learning_Rate, loss_Display, optimize]        
         self.test_Tensor_List = [global_Step, hidden_Activation, phonology_Activation]
+        self.analysis_Tensor_List = [split_Cosine_Similarity, split_Mean_Squared_Error, split_Euclidean_Distance, split_Cross_Entropy, all_Cosine_Similarity, all_Mean_Squared_Error, all_Euclidean_Distance, all_Cross_Entropy, pattern_Argmax]
 
         self.tf_Session.run(tf.global_variables_initializer())
 
@@ -273,6 +297,129 @@ class VOISeR:
                 
         with open(self.extract_Dir + "/Result/%s.pickle" % epoch, "wb") as f:
             pickle.dump(result_Dict, f, protocol=0)
+
+    def Inference(self, word_List, pronunciation_List, file_Prefix= 'Inference', analysis_Batch_Size = 20):
+        target_Phonology_Pattern, feed_Dict_List = self.pattern_Feeder.Get_InferenceTest_Pattern_List(word_List, pronunciation_List)
+        
+        hidden_Activation_List = []
+        phonology_Activation_List = []
+        for feed_Dict in feed_Dict_List:
+            _, hidden_Activation, phonology_Activation = self.tf_Session.run(
+                fetches = self.test_Tensor_List,
+                feed_dict = feed_Dict
+                )
+            hidden_Activation_List.append(hidden_Activation)
+            phonology_Activation_List.append(np.reshape(phonology_Activation, [-1, self.pattern_Feeder.max_Pronunciation_Length, self.pattern_Feeder.phonology_Size, ]))
+
+        hidden_Activation = np.vstack(hidden_Activation_List)
+        phonology_Activation = np.vstack(phonology_Activation_List)
+
+
+        analysis_List_Dict = {
+            'Split': {
+                'Cosine_Similarity': [],
+                'Mean_Squared_Error': [],
+                'Euclidean_Distance': [],
+                'Cross_Entropy': [],                
+                },
+            'All': {
+                'Cosine_Similarity': [],
+                'Mean_Squared_Error': [],
+                'Euclidean_Distance': [],
+                'Cross_Entropy': [],     
+                },
+            'Pattern_Argmax': []
+            }
+
+        pattern_Index_List = list(range(len(word_List)))
+        pattern_Index_Batch_List = [pattern_Index_List[x:x+analysis_Batch_Size] for x in range(0, len(pattern_Index_List), analysis_Batch_Size)]
+
+        for pattern_Index_Batch in pattern_Index_Batch_List:
+            split_Cosine_Similarity, split_Mean_Squared_Error, split_Euclidean_Distance, split_Cross_Entropy, all_Cosine_Similarity, all_Mean_Squared_Error, all_Euclidean_Distance, all_Cross_Entropy, pattern_Argmax = self.tf_Session.run(
+                fetches = self.analysis_Tensor_List,
+                feed_dict = {
+                    self.pattern_Feeder.placeholder_Dict['Phoneme_Info']: self.pattern_Feeder.phoneme_Pattern,
+                    self.pattern_Feeder.placeholder_Dict['Phonology']: target_Phonology_Pattern[pattern_Index_Batch],
+                    self.pattern_Feeder.placeholder_Dict['Analysis_Input']: phonology_Activation[pattern_Index_Batch],
+                    }
+                )
+            analysis_List_Dict['Split']['Cosine_Similarity'].append(split_Cosine_Similarity)
+            analysis_List_Dict['Split']['Mean_Squared_Error'].append(split_Mean_Squared_Error)
+            analysis_List_Dict['Split']['Euclidean_Distance'].append(split_Euclidean_Distance)
+            analysis_List_Dict['Split']['Cross_Entropy'].append(split_Cross_Entropy)
+            analysis_List_Dict['All']['Cosine_Similarity'].append(all_Cosine_Similarity)
+            analysis_List_Dict['All']['Mean_Squared_Error'].append(all_Mean_Squared_Error)
+            analysis_List_Dict['All']['Euclidean_Distance'].append(all_Euclidean_Distance)
+            analysis_List_Dict['All']['Cross_Entropy'].append(all_Cross_Entropy)
+            analysis_List_Dict['Pattern_Argmax'].append(pattern_Argmax)
+
+        split_Cosine_Similarity = np.vstack(analysis_List_Dict['Split']['Cosine_Similarity'])
+        split_Mean_Squared_Error = np.vstack(analysis_List_Dict['Split']['Mean_Squared_Error'])
+        split_Euclidean_Distance = np.vstack(analysis_List_Dict['Split']['Euclidean_Distance'])
+        split_Cross_Entropy = np.vstack(analysis_List_Dict['Split']['Cross_Entropy'])
+        all_Cosine_Similarity = np.hstack(analysis_List_Dict['All']['Cosine_Similarity'])
+        all_Mean_Squared_Error = np.hstack(analysis_List_Dict['All']['Mean_Squared_Error'])
+        all_Euclidean_Distance = np.hstack(analysis_List_Dict['All']['Euclidean_Distance'])
+        all_Cross_Entropy = np.hstack(analysis_List_Dict['All']['Cross_Entropy'])
+        pattern_Argmax = np.vstack(analysis_List_Dict['Pattern_Argmax'])
+
+        self.Extract_Inference(
+            word_List= word_List,
+            pronunciation_List= pronunciation_List,
+            split_Cosine_Similarity_Array= split_Cosine_Similarity,
+            split_Mean_Squared_Error_Array= split_Mean_Squared_Error,
+            split_Euclidean_Distance_Array= split_Euclidean_Distance,
+            split_Cross_Entropy_Array= split_Cross_Entropy,
+            all_Cosine_Similarity_Array= all_Cosine_Similarity,
+            all_Mean_Squared_Error_Array= all_Mean_Squared_Error,
+            all_Euclidean_Distance_Array= all_Euclidean_Distance,
+            all_Cross_Entropy_Array= all_Cross_Entropy,
+            pattern_Argmax_Array= pattern_Argmax,
+            file_Prefix= file_Prefix
+            )
+
+    def Extract_Inference(
+        self,
+        word_List,
+        pronunciation_List,
+        split_Cosine_Similarity_Array,
+        split_Mean_Squared_Error_Array,
+        split_Euclidean_Distance_Array,
+        split_Cross_Entropy_Array,
+        all_Cosine_Similarity_Array,
+        all_Mean_Squared_Error_Array,
+        all_Euclidean_Distance_Array,
+        all_Cross_Entropy_Array,
+        pattern_Argmax_Array,
+        file_Prefix= 'Inference'
+        ):
+        index_Phoneme_Dict = {index: phoneme for phoneme, index in self.pattern_Feeder.phoneme_Index_Dict.items() if len(phoneme) == 1}
+        def Pronunciation_Generate(phoneme_Argmax_Array):            
+            pronunciation = "".join([index_Phoneme_Dict[phoneme_Index] for phoneme_Index in phoneme_Argmax_Array])
+            while len(pronunciation) > 0 and pronunciation[-1] == "_":
+                pronunciation = pronunciation[:-1]
+            return pronunciation
+
+        column_Title_List = ['Word', 'Targe_Pronunciation', 'Exported_Pronunciation', 'Accuracy', 'Loss_Type', 'All_Loss'] + ['Split_Loss_Location_{}'.format(x) for x in range(self.pattern_Feeder.max_Pronunciation_Length)]
+
+        export_List = ['\t'.join(column_Title_List)]
+        for word, pronunciation, split_Cosine_Similarity, split_Mean_Squared_Error, split_Euclidean_Distance, split_Cross_Entropy, all_Cosine_Similarity, all_Mean_Squared_Error, all_Euclidean_Distance, all_Cross_Entropy, pattern_Argmax in zip(
+            word_List, pronunciation_List, split_Cosine_Similarity_Array, split_Mean_Squared_Error_Array, split_Euclidean_Distance_Array, split_Cross_Entropy_Array, all_Cosine_Similarity_Array, all_Mean_Squared_Error_Array, all_Euclidean_Distance_Array, all_Cross_Entropy_Array, pattern_Argmax_Array
+            ):
+            exported_Pronunciation = Pronunciation_Generate(pattern_Argmax)
+            for loss_Label, all_Loss, split_Loss in zip(
+                ['Cosine_Similarity', 'Mean_Squared_Error', 'Euclidean_Distance', 'Cross_Entropy'],
+                [all_Cosine_Similarity, all_Mean_Squared_Error, all_Euclidean_Distance, all_Cross_Entropy],
+                [split_Cosine_Similarity, split_Mean_Squared_Error, split_Euclidean_Distance, split_Cross_Entropy]
+                ):
+                new_Line_List = [word, pronunciation, exported_Pronunciation, int(pronunciation == exported_Pronunciation), loss_Label, all_Loss] + [x for x in split_Loss]
+                export_List.append('\t'.join(['{}'.format(x) for x in new_Line_List]))
+
+        os.makedirs(os.path.join(self.extract_Dir, "Inference").replace('\\', '/'), exist_ok= True)
+        with open(os.path.join(self.extract_Dir, "Inference", '{}.Inference.txt'.format(file_Prefix)).replace('\\', '/'), "w") as f:
+            f.write('\n'.join(export_List))
+
+
 
 if __name__ == "__main__":
     argParser = argparse.ArgumentParser()
