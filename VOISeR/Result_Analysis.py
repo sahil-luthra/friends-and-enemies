@@ -126,8 +126,8 @@ class Result_Analyzer:
         hidden_Compare_Tensor = tf.concat([tf.zeros((tf.shape(hidden_Tensor)[0], 1, self.hidden_Size)), hidden_Tensor], axis=1)[:,:-1,:]    #[batch, 17, 500]
 
         #Hidden activation function was 'tanh()', so actiation need rescale.  (-1.0 to 1.0) -> (0.0 to 1.0)
-        rescaled_Hidden_Tensor = (hidden_Tensor + 1) / 2
-        rescaled_Hidden_Compare_Tensor = (hidden_Compare_Tensor + 1) / 2
+        rescaled_Hidden_Tensor = (hidden_Tensor + 1.0) / 2.0
+        rescaled_Hidden_Compare_Tensor = (hidden_Compare_Tensor + 1.0) / 2.0
 
         cosine_Similarity = tf.reduce_sum(tf.reduce_sum(rescaled_Hidden_Tensor * rescaled_Hidden_Compare_Tensor, axis = 2) / (tf.sqrt(tf.reduce_sum(tf.pow(rescaled_Hidden_Tensor, 2), axis = 2)) * tf.sqrt(tf.reduce_sum(tf.pow(rescaled_Hidden_Compare_Tensor, 2), axis = 2))), axis=1)  #[batch]
         mean_Squared_Error = tf.reduce_sum(tf.reduce_mean(tf.pow(rescaled_Hidden_Tensor - rescaled_Hidden_Compare_Tensor, 2), axis=2), axis=1)  #[batch]
