@@ -16,7 +16,7 @@ VOISeR is a simple computational reading model to support the friends-and-enemie
 tensorflow >= 1.13
 
 If you are using TF 2.0, see the repository below:  
-https://github.com/CODEJIN/VOISeR_TF20   (Private now. Will be converted to public after submitting)
+https://github.com/maglab-uconn/VOISeR_TF20   (Private now. Will be converted to public after submitting)
 
 ## Structure
 ![Structure](https://user-images.githubusercontent.com/17133841/66222115-70035a80-e69e-11e9-8a8e-0bc0ef4c71d7.png)
