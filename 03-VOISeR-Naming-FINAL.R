@@ -79,8 +79,38 @@ VOISeR.trained.correct.LN.8letter <- merge(lexicon.8letter, VOISeR.trained.corre
 #Visualize correlations between model parameters and subject RT
 my.pairscor(VOISeR.trained.correct.LN[c(6,8:11)])
 cor.test(VOISeR.trained.correct.LN$MeanRT, VOISeR.trained.correct.LN$Cross_Entropy)
-
 #Correlation with cross-entropy is highest
+
+# Do a few other simple tests on VOISeR
+# Factor out word length, word frequency, and neighborhood size before doing RT-CE correlation
+pcor.test(VOISeR.trained.correct.LN$MeanRT, VOISeR.trained.correct.LN$Cross_Entropy, 
+          cbind(VOISeR.trained.correct.LN$Length, VOISeR.trained.correct.LN$Log_Freq_HAL, 
+                VOISeR.trained.correct.LN$Ortho_N))
+
+# Test for word length effect
+ggplot(VOISeR.trained.correct.LN, aes(Length, Cross_Entropy)) + 
+  geom_smooth(method=lm, color = "black", alpha = 0.15) + geom_point() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "transparent", color = NA)) + 
+  labs(x="Word Length", y = "ln(CE)") 
+cor.test(VOISeR.trained.correct.LN$Length, VOISeR.trained.correct.LN$Cross_Entropy)
+
+# Test for word frequency effect
+ggplot(VOISeR.trained.correct.LN, aes(Log_Freq_HAL, Cross_Entropy)) + 
+  geom_smooth(method=lm, color = "black", alpha = 0.15) + geom_point() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "transparent", color = NA)) + 
+  labs(x="Word Frequency", y = "ln(CE)") 
+cor.test(VOISeR.trained.correct.LN$Log_Freq_HAL, VOISeR.trained.correct.LN$Cross_Entropy)
+
+# Test for orthographic neighbor effect
+ggplot(VOISeR.trained.correct.LN, aes(Ortho_N, Cross_Entropy)) + 
+  geom_smooth(method=lm, color = "black", alpha = 0.15) + geom_point() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "transparent", color = NA)) + 
+  labs(x="Word Frequency", y = "ln(CE)") 
+cor.test(VOISeR.trained.correct.LN$Ortho_N, VOISeR.trained.correct.LN$Cross_Entropy)
+
 
 # Cross entropy regressions with Enemies ####
 #3-letter words
